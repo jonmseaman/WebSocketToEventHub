@@ -8,8 +8,6 @@
 //
 // The [source](https://github.com/paulbatum/WebSocket-Samples) for this sample is on GitHub.
 //
-// This HTML documentation was generated using [Nocco](http://dontangg.github.com/nocco/).
-
 //### Imports
 // Some standard imports, but note the last one is the new `System.Net.WebSockets` namespace.
 
@@ -21,6 +19,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Net.WebSockets;
+using System.Reflection;
 using Microsoft.ServiceBus.Messaging;
 
 namespace HttpListenerWebSocketEcho
@@ -32,7 +31,7 @@ namespace HttpListenerWebSocketEcho
         static void Main(string[] args)
         {
             var server = new Server();
-            server.Start("http://+:80/wsDemo/");
+            server.Start("http://+:80/");
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
         }
@@ -40,16 +39,13 @@ namespace HttpListenerWebSocketEcho
 
     class Server
     {
-        private EventHubClient client;
         private int count = 0;
 
         public async void Start(string listenerPrefix)
         {
-            // TODO: Put connection string in settings file.
-            client = EventHubClient.CreateFromConnectionString("Endpoint=sb://testsbwebsocket.servicebus.windows.net/;SharedAccessKeyName=Managed;SharedAccessKey=Wf6ALbH9pSc02IGmP7ThPKbosjM2lxSzFAWBX58sKqw=;EntityPath=testwebsocketreceiver");
-
             HttpListener listener = new HttpListener();
             listener.Prefixes.Add(listenerPrefix);
+            listener.AuthenticationSchemes = AuthenticationSchemes.Basic;
             listener.Start();
             Console.WriteLine("Listening...");
 
@@ -72,6 +68,13 @@ namespace HttpListenerWebSocketEcho
         {
 
             WebSocketContext webSocketContext = null;
+            // Try to make an event hub client.
+            var connectionString = GetConnectionStringFromContext(listenerContext);
+            listenerContext.Response.StatusCode = 401;
+            var client = EventHubClient.CreateFromConnectionString(connectionString);
+
+            Console.WriteLine(connectionString);
+
             try
             {
                 // When calling `AcceptWebSocketAsync` the negotiated subprotocol must be specified. This sample assumes that no subprotocol 
@@ -137,6 +140,35 @@ namespace HttpListenerWebSocketEcho
                 if (webSocket != null)
                     webSocket.Dispose();
             }
+        }
+
+        private string GetConnectionStringFromContext(HttpListenerContext listenerContext)
+        {
+            var identity = listenerContext.User.Identity as HttpListenerBasicIdentity;
+            string keyName = null;
+            string key = null;
+            if (identity != null)
+            {
+                keyName = identity.Name;
+                key = identity.Password;
+            }
+            else
+            {
+                throw new ArgumentException("Did not find authentication in request.");
+            }
+
+            // Namespace
+            var host = listenerContext.Request.UserHostName;
+            var periodLocation = host.IndexOf(".");
+            string nsName = null;
+            if (periodLocation < 0) throw new ArgumentException("Bad namespace name.");
+            nsName = host.Substring(0, periodLocation);
+
+            var rawUrl = listenerContext.Request.RawUrl;
+            if (rawUrl.Length < 3) throw new ArgumentException("Bad event hub name.");
+            string eventHubName = rawUrl.Substring(1);
+
+            return $"Endpoint=sb://{nsName}.servicebus.windows.net/;SharedAccessKeyName={keyName};SharedAccessKey={key};EntityPath={eventHubName}";
         }
     }
 
