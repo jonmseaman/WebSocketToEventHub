@@ -8,9 +8,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Client
+namespace WebSocketClient
 {
-    class Client
+    public static class Client
     {
         private static object consoleLock = new object();
         private const int sendChunkSize = 256;

@@ -22,7 +22,7 @@ using System.Net.WebSockets;
 using System.Reflection;
 using Microsoft.ServiceBus.Messaging;
 
-namespace HttpListenerWebSocketEcho
+namespace HttpListenerWebSocket
 {
     // Passes an HttpListener prefix for the server to listen on. The prefix 'http://+:80/wsDemo/' indicates that the server should listen on 
     // port 80 for requests to wsDemo (e.g. http://localhost/wsDemo). For more information on HttpListener prefixes see [MSDN](http://msdn.microsoft.com/en-us/library/system.net.httplistener.aspx).            
@@ -37,7 +37,7 @@ namespace HttpListenerWebSocketEcho
         }
     }
 
-    class Server
+    public class Server
     {
         private int count = 0;
 
@@ -66,12 +66,13 @@ namespace HttpListenerWebSocketEcho
 
         private async void ProcessRequest(HttpListenerContext listenerContext)
         {
-
             WebSocketContext webSocketContext = null;
             // Try to make an event hub client.
             var connectionString = GetConnectionStringFromContext(listenerContext);
             listenerContext.Response.StatusCode = 401;
             var client = EventHubClient.CreateFromConnectionString(connectionString);
+
+            // TODO: Make a concurrent queue here.
 
             Console.WriteLine(connectionString);
 
@@ -104,6 +105,8 @@ namespace HttpListenerWebSocketEcho
                 {
                     // The first step is to begin a receive operation on the WebSocket. `ReceiveAsync` takes two parameters:
                     WebSocketReceiveResult receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(receiveBuffer), CancellationToken.None);
+
+                    // TODO: Add the message to the queue instead.
 
                     if (receiveResult.MessageType == WebSocketMessageType.Close)
                     {
@@ -138,16 +141,28 @@ namespace HttpListenerWebSocketEcho
             {
                 // Clean up by disposing the WebSocket once it is closed/aborted.
                 if (webSocket != null)
+                {
                     webSocket.Dispose();
+                    client.CloseAsync();
+                }
             }
         }
 
-        private string GetConnectionStringFromContext(HttpListenerContext listenerContext)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="listenerContext"></param>
+        /// <exception cref="ArgumentExcepton">Thrown when there is not enough
+        /// information in the request to make the connection string
+        /// or part of the url is not formatted correctly.</exception>
+        /// <returns></returns>
+        private static string GetConnectionStringFromContext(HttpListenerContext listenerContext)
         {
+            // KeyName and Key
             var identity = listenerContext.User.Identity as HttpListenerBasicIdentity;
             string keyName = null;
             string key = null;
-            if (identity != null)
+            if (!listenerContext.Request.IsAuthenticated || identity != null)
             {
                 keyName = identity.Name;
                 key = identity.Password;
@@ -161,11 +176,11 @@ namespace HttpListenerWebSocketEcho
             var host = listenerContext.Request.UserHostName;
             var periodLocation = host.IndexOf(".");
             string nsName = null;
-            if (periodLocation < 0) throw new ArgumentException("Bad namespace name.");
+            if (periodLocation < 0) throw new ArgumentException("Missing namespace name.");
             nsName = host.Substring(0, periodLocation);
-
+            // Event hub name
             var rawUrl = listenerContext.Request.RawUrl;
-            if (rawUrl.Length < 3) throw new ArgumentException("Bad event hub name.");
+            if (rawUrl.Length < 3) throw new ArgumentException("Missing event hub name..");
             string eventHubName = rawUrl.Substring(1);
 
             return $"Endpoint=sb://{nsName}.servicebus.windows.net/;SharedAccessKeyName={keyName};SharedAccessKey={key};EntityPath={eventHubName}";
