@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using HttpListenerWebSocket;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -16,11 +17,25 @@ namespace ServerTest
         [ClassInitialize]
         public static void Setup(TestContext testContext)
         {
-
+            // Make sure the server is running to run our tests.
+            var processes = Process.GetProcesses();
+            bool foundServer = processes.Any(process => process.ProcessName.Equals("EventHubWebSocketServer.exe"));
+            if (!foundServer)
+            {
+                throw new Exception("EventHubWebSocketServer not running.");
+            }
         }
 
         [TestMethod]
-        [PrincipalPermission(SecurityAction.Demand, Role = "Administrator")]
+        public void FoundServer()
+        {
+            // Make sure the server is running to run our tests.
+            var processes = Process.GetProcesses();
+            bool foundServer = processes.Any(process => process.ProcessName.Equals("EventHubWebSocketServer"));
+            Assert.IsTrue(foundServer);
+        }
+
+        [TestMethod]
         public void TestWebSocketConnection()
         {
             // Start the server

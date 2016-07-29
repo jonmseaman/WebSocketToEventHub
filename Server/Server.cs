@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -42,6 +43,7 @@ namespace HttpListenerWebSocket
                 Console.WriteLine("Program must be run as administrator.");
                 Environment.Exit(1);
             }
+            Console.WriteLine(Process.GetCurrentProcess().ProcessName);
 
             var server = new Server();
             server.Start("http://+:80/");
