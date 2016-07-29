@@ -1,8 +1,11 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Threading;
 using HttpListenerWebSocket;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Net.WebSockets;
+using System.Security.Permissions;
+using System.Security.Principal;
 using System.Threading.Tasks;
 
 namespace ServerTest
@@ -10,7 +13,14 @@ namespace ServerTest
     [TestClass]
     public class ServerTests
     {
+        [ClassInitialize]
+        public static void Setup(TestContext testContext)
+        {
+
+        }
+
         [TestMethod]
+        [PrincipalPermission(SecurityAction.Demand, Role = "Administrator")]
         public void TestWebSocketConnection()
         {
             // Start the server

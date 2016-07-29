@@ -12,6 +12,7 @@
 // Some standard imports, but note the last one is the new `System.Net.WebSockets` namespace.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -20,6 +21,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Net.WebSockets;
 using System.Reflection;
+using System.Security.Principal;
+using Microsoft.ServiceBus;
 using Microsoft.ServiceBus.Messaging;
 
 namespace HttpListenerWebSocket
@@ -30,10 +33,20 @@ namespace HttpListenerWebSocket
     {
         static void Main(string[] args)
         {
+            // Check if the server is running
+            var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            var isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            if (!isAdmin)
+            {
+                Console.WriteLine("Program must be run as administrator.");
+                Environment.Exit(1);
+            }
+
             var server = new Server();
             server.Start("http://+:80/");
-            Console.WriteLine("Press any key to exit...");
-            Console.ReadKey();
+            Console.WriteLine("Press enter to exit...");
+            Console.ReadLine();
         }
     }
 
@@ -72,7 +85,8 @@ namespace HttpListenerWebSocket
             listenerContext.Response.StatusCode = 401;
             var client = EventHubClient.CreateFromConnectionString(connectionString);
 
-            // TODO: Make a concurrent queue here.
+            // Queue to hold event data in between receiving and sending.
+            var data = new ConcurrentQueue<EventData>();
 
             Console.WriteLine(connectionString);
 
@@ -94,20 +108,24 @@ namespace HttpListenerWebSocket
             }
 
             WebSocket webSocket = webSocketContext.WebSocket;
+            // Make a thread that sends the messages.
+            var sendingThread = Task.Factory.StartNew(() =>
+            {
+                // ReSharper disable once AccessToDisposedClosure
+                SendEvents(client, data, webSocket);
+            });
 
             try
             {
                 //### Receiving
                 // Define a receive buffer to hold data received on the WebSocket connection. The buffer will be reused.
                 byte[] receiveBuffer = new byte[1024];
-
                 while (webSocket.State == WebSocketState.Open)
                 {
                     // The first step is to begin a receive operation on the WebSocket. `ReceiveAsync` takes two parameters:
                     WebSocketReceiveResult receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(receiveBuffer), CancellationToken.None);
 
-                    // TODO: Add the message to the queue instead.
-
+                    // Adding the message to a queue.
                     if (receiveResult.MessageType == WebSocketMessageType.Close)
                     {
                         Console.WriteLine("Received message of MessageType Close. Closing connection...");
@@ -116,16 +134,17 @@ namespace HttpListenerWebSocket
                     else if (receiveResult.MessageType == WebSocketMessageType.Text)
                     {
                         var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
-                        client.Send(new EventData(Encoding.UTF8.GetBytes(str)));
+                        data.Enqueue(new EventData(Encoding.UTF8.GetBytes(str)));
                     }
                     else
                     {
                         await webSocket.SendAsync(new ArraySegment<byte>(receiveBuffer, 0, receiveResult.Count), WebSocketMessageType.Binary, receiveResult.EndOfMessage, CancellationToken.None);
                         var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
-                        client.Send(new EventData(Encoding.UTF8.GetBytes(str)));
+
+                        data.Enqueue(new EventData(Encoding.UTF8.GetBytes(str)));
                     }
 
-                    // Forwarding to event hub operation complete.
+                    // Message processing complete.
                 }
             }
             catch (Exception e)
@@ -140,10 +159,39 @@ namespace HttpListenerWebSocket
             finally
             {
                 // Clean up by disposing the WebSocket once it is closed/aborted.
-                if (webSocket != null)
+                await sendingThread; // Must this thread as it uses webSocket, which is about to be disposed.
+                client.Close();
+                webSocket?.Dispose();
+            }
+        }
+
+        private void SendEvents(EventHubClient client, ConcurrentQueue<EventData> dataQueue, WebSocket webSocket)
+        {
+            const int maxBatchSize = 256*1000; // Max batch size is 256kb. 
+            while (!dataQueue.IsEmpty || webSocket.State == WebSocketState.Open)
+            {
+                // Get a batch
+                var batch = new List<EventData>();
+                long sz = 0;
+                var startBatchingTime = DateTime.Now;
+                TimeSpan dt;
+                var maxDt = TimeSpan.FromMilliseconds(3.0);
+                do
                 {
-                    webSocket.Dispose();
-                    client.CloseAsync();
+                    EventData data;
+                    var result = dataQueue.TryDequeue(out data);
+                    if (result)
+                    {
+                        sz += data.SerializedSizeInBytes;
+                        batch.Add(data);
+                    } 
+
+                    dt = DateTime.Now - startBatchingTime;
+                } while (sz < maxBatchSize && dt < maxDt);
+                // Send that data
+                if (batch.Count > 0)
+                {
+                    client.SendBatch(batch);
                 }
             }
         }
