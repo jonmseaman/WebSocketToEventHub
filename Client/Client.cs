@@ -21,7 +21,7 @@ namespace WebSocketClient
         static void Main(string[] args)
         {
             Thread.Sleep(1000);
-            Connect("ws://localhost/wsDemo").Wait();
+            Connect("ws://Managed:Wf6ALbH9pSc02IGmP7ThPKbosjM2lxSzFAWBX58sKqw=@testwebsocket.localhost:80/testwebsocketreceiver/").Wait();
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
         }

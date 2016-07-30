@@ -199,13 +199,14 @@ namespace HttpListenerWebSocket
         }
 
         /// <summary>
-        /// 
+        /// Gets a connection string from an <see cref="HttpListenerContext"/>.
         /// </summary>
-        /// <param name="listenerContext"></param>
+        /// <param name="listenerContext">The <see cref="HttpListenerContext"/> from 
+        /// which to get the connection string.</param>
         /// <exception cref="ArgumentExcepton">Thrown when there is not enough
         /// information in the request to make the connection string
         /// or part of the url is not formatted correctly.</exception>
-        /// <returns></returns>
+        /// <returns>A connection string for the event hub corresponding to the listenerContext.</returns>
         private static string GetConnectionStringFromContext(HttpListenerContext listenerContext)
         {
             // KeyName and Key
