@@ -23,6 +23,7 @@ using System.Threading.Tasks;
 using System.Net.WebSockets;
 using System.Reflection;
 using System.Security.Principal;
+using System.Text.RegularExpressions;
 using Microsoft.ServiceBus;
 using Microsoft.ServiceBus.Messaging;
 
@@ -83,7 +84,9 @@ namespace HttpListenerWebSocket
         {
             WebSocketContext webSocketContext = null;
             // Try to make an event hub client.
-            var connectionString = GetConnectionStringFromContext(listenerContext);
+            var url = GetUrl(listenerContext);
+            // TODO: Get the regex pattern from app.config.
+            var connectionString = GetConnectionString(url, new Regex(@"(?:https*:\/\/)(?<keyName>\w+):(?<key>.+)@(?<ns>\w+)(?:.\w+)(?:\:80)*\/(?<name>\w+)"));
             listenerContext.Response.StatusCode = 401;
             var client = EventHubClient.CreateFromConnectionString(connectionString);
 
@@ -186,7 +189,7 @@ namespace HttpListenerWebSocket
                     {
                         sz += data.SerializedSizeInBytes;
                         batch.Add(data);
-                    } 
+                    }
 
                     dt = DateTime.Now - startBatchingTime;
                 } while (sz < maxBatchSize && dt < maxDt);
@@ -198,53 +201,23 @@ namespace HttpListenerWebSocket
             }
         }
 
-        /// <summary>
-        /// Gets a connection string from an <see cref="HttpListenerContext"/>.
-        /// </summary>
-        /// <param name="listenerContext">The <see cref="HttpListenerContext"/> from 
-        /// which to get the connection string.</param>
-        /// <exception cref="ArgumentExcepton">Thrown when there is not enough
-        /// information in the request to make the connection string
-        /// or part of the url is not formatted correctly.</exception>
-        /// <returns>A connection string for the event hub corresponding to the listenerContext.</returns>
-        private static string GetConnectionStringFromContext(HttpListenerContext listenerContext)
+        private static string GetConnectionString(string url, Regex r)
         {
-            // KeyName and Key
-            var identity = listenerContext.User.Identity as HttpListenerBasicIdentity;
-            string keyName = null;
-            string key = null;
-            if (!listenerContext.Request.IsAuthenticated || identity != null)
-            {
-                keyName = identity.Name;
-                key = identity.Password;
-            }
-            else
-            {
-                throw new ArgumentException("Did not find authentication in request.");
-            }
-
-            // Namespace
-            var host = listenerContext.Request.UserHostName;
-            var periodLocation = host.IndexOf(".");
-            string nsName = null;
-            if (periodLocation < 0) throw new ArgumentException("Missing namespace name.");
-            nsName = host.Substring(0, periodLocation);
-            // Event hub name
-            var rawUrl = listenerContext.Request.RawUrl;
-            if (rawUrl.Length < 3) throw new ArgumentException("Missing event hub name..");
-            string eventHubName = rawUrl.Substring(1);
-
-            return $"Endpoint=sb://{nsName}.servicebus.windows.net/;SharedAccessKeyName={keyName};SharedAccessKey={key};EntityPath={eventHubName}";
+            var match = r.Match(url);
+            if (!match.Success) throw new ArgumentException("Regex did not find a match in url.");
+            var g = match.Groups;
+            var conStr = $"Endpoint=sb://{g["ns"]}.servicebus.windows.net/;SharedAccessKeyName={g["keyName"]};SharedAccessKey={g["key"]};EntityPath={g["name"]}";
+            return conStr;
         }
-    }
 
-    // This extension method wraps the BeginGetContext / EndGetContext methods on HttpListener as a Task, using a helper function from the Task Parallel Library (TPL).
-    // This makes it easy to use HttpListener with the C# 5 asynchrony features.
-    public static class HelperExtensions
-    {
-        public static Task GetContextAsync(this HttpListener listener)
+
+
+        private static string GetUrl(HttpListenerContext context)
         {
-            return Task.Factory.FromAsync<HttpListenerContext>(listener.BeginGetContext, listener.EndGetContext, TaskCreationOptions.None);
+            var user = context.User.Identity as HttpListenerBasicIdentity;
+            if (user == null) throw new ArgumentException("Did not find user auth in context.");
+            var url = context.Request.Url.ToString().Replace("//", $"//{user.Name}:{user.Password}@");
+            return url;
         }
     }
 }
