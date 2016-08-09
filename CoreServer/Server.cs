@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Azure.EventHubs;
 
 namespace CoreServer
 {
@@ -20,7 +21,7 @@ namespace CoreServer
             // TODO: Get the regex pattern from app.config.
             var connectionString = GetConnectionString(url, new Regex(@"(?:https*:\/\/)(?<keyName>\w+):(?<key>.+)@(?<ns>\w+)(?:.\w+)(?:\:80)*\/(?<name>\w+)"));
             listenerContext.Response.StatusCode = 401;
-            var client = EventHubClient.CreateFromConnectionString(connectionString);
+            var client = EventHubClient.Create(connectionString);
 
             // Queue to hold event data in between receiving and sending.
             var data = new ConcurrentQueue<EventData>();
