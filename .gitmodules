@@ -1,0 +1,9 @@
+[submodule "Auth"]
+	path = Auth
+	url = https://github.com/blowdart/idunno.Authentication.git
+[submodule "azure-event-hubs"]
+	path = azure-event-hubs
+	url = https://github.com/Azure/azure-event-hubs.git
+[submodule "azure-amqp"]
+	path = azure-amqp
+	url = https://github.com/Azure/azure-amqp.git
