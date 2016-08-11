@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Net.WebSockets;
+using System.Security.Claims;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,17 +25,28 @@ namespace CoreServer
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env, ILoggerFactory loggerFactory)
         {
-            loggerFactory.AddConsole();
+            app.UseWebSockets();
 
-            if (env.IsDevelopment())
+            app.Use(async (http, next) =>
             {
-                app.UseDeveloperExceptionPage();
-            }
-
-            app.Run(async (context) =>
-            {
-                await context.Response.WriteAsync("Hello World!");
+                // Make a new connection
+                // Add the connection to the 
+                if (http.WebSockets.IsWebSocketRequest)
+                {
+                    var server = new Server();
+                    server.ProcessRequest(http);
+                }
+                else
+                {
+                    await next();
+                }
             });
+
+            //app.Run(async (context) =>
+            //{
+            //    // TODO: Setup web socket listener
+            //    await context.Response.WriteAsync("Hello World!");
+            //});
         }
     }
 }

@@ -7,20 +7,24 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Azure.EventHubs;
 
 namespace CoreServer
 {
     public class Server
     {
-                private async void ProcessRequest(HttpListenerContext listenerContext)
+        private int count;
+        public async void ProcessRequest(HttpContext context)
         {
-            WebSocketContext webSocketContext = null;
             // Try to make an event hub client.
-            var url = GetUrl(listenerContext);
+            var url = GetUrl(context);
             // TODO: Get the regex pattern from app.config.
+            Console.WriteLine($"Url: {url}");
             var connectionString = GetConnectionString(url, new Regex(@"(?:https*:\/\/)(?<keyName>\w+):(?<key>.+)@(?<ns>\w+)(?:.\w+)(?:\:80)*\/(?<name>\w+)"));
-            listenerContext.Response.StatusCode = 401;
+            Console.WriteLine($"Conn Str: {connectionString}");
+            context.Response.StatusCode = 401;
             var client = EventHubClient.Create(connectionString);
 
             // Queue to hold event data in between receiving and sending.
@@ -28,24 +32,23 @@ namespace CoreServer
 
             Console.WriteLine(connectionString);
 
+            WebSocket webSocket;
             try
             {
                 // When calling `AcceptWebSocketAsync` the negotiated subprotocol must be specified. This sample assumes that no subprotocol 
                 // was requested. 
-                webSocketContext = await listenerContext.AcceptWebSocketAsync(subProtocol: null);
+                webSocket = await context.WebSockets.AcceptWebSocketAsync(subProtocol: null);
                 Interlocked.Increment(ref count);
                 Console.WriteLine("Processed: {0}", count);
             }
             catch (Exception e)
             {
                 // The upgrade process failed somehow. For simplicity lets assume it was a failure on the part of the server and indicate this using 500.
-                listenerContext.Response.StatusCode = 500;
-                listenerContext.Response.Close();
+                context.Response.StatusCode = 500;
+                //context.Response.Close();
                 Console.WriteLine("Exception: {0}", e);
                 return;
             }
-
-            WebSocket webSocket = webSocketContext.WebSocket;
             // Make a thread that sends the messages.
             var sendingThread = Task.Factory.StartNew(() =>
             {
@@ -71,13 +74,15 @@ namespace CoreServer
                     }
                     else if (receiveResult.MessageType == WebSocketMessageType.Text)
                     {
-                        var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
+                        //var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
+                        var str = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.Count);
                         data.Enqueue(new EventData(Encoding.UTF8.GetBytes(str)));
                     }
                     else
                     {
                         await webSocket.SendAsync(new ArraySegment<byte>(receiveBuffer, 0, receiveResult.Count), WebSocketMessageType.Binary, receiveResult.EndOfMessage, CancellationToken.None);
-                        var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
+                        //var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
+                        var str = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.Count);
 
                         data.Enqueue(new EventData(Encoding.UTF8.GetBytes(str)));
                     }
@@ -105,7 +110,7 @@ namespace CoreServer
 
         private void SendEvents(EventHubClient client, ConcurrentQueue<EventData> dataQueue, WebSocket webSocket)
         {
-            const int maxBatchSize = 256*1000; // Max batch size is 256kb. 
+            const int maxBatchSize = 256 * 1000; // Max batch size is 256kb. 
             while (!dataQueue.IsEmpty || webSocket.State == WebSocketState.Open)
             {
                 // Get a batch
@@ -120,7 +125,7 @@ namespace CoreServer
                     var result = dataQueue.TryDequeue(out data);
                     if (result)
                     {
-                        sz += data.SerializedSizeInBytes;
+                        sz += data.Body.Count;
                         batch.Add(data);
                     }
 
@@ -129,7 +134,7 @@ namespace CoreServer
                 // Send that data
                 if (batch.Count > 0)
                 {
-                    client.SendBatch(batch);
+                    client.SendAsync(batch).Wait();
                 }
             }
         }
@@ -145,11 +150,13 @@ namespace CoreServer
 
 
 
-        private static string GetUrl(HttpListenerContext context)
+        private static string GetUrl(HttpContext context)
         {
-            var user = context.User.Identity as HttpListenerBasicIdentity;
-            if (user == null) throw new ArgumentException("Did not find user auth in context.");
-            var url = context.Request.Url.ToString().Replace("//", $"//{user.Name}:{user.Password}@");
+            //context.User.Identity
+            //var user = context.User.Identity as HttpListenerBasicIdentity;
+            //if (user == null) throw new ArgumentException("Did not find user auth in context.");
+            //var url = context.Request.Url.ToString().Replace("//", $"//{user.Name}:{user.Password}@");
+            var url = context.Request.GetDisplayUrl();
             return url;
         }
 

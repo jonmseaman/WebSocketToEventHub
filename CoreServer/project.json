@@ -5,8 +5,10 @@
       "type": "platform"
     },
     "Microsoft.AspNetCore.Server.IISIntegration": "1.0.0",
+    "Microsoft.AspNetCore.Authorization": "1.0.0",
     "Microsoft.AspNetCore.Server.Kestrel": "1.0.0",
-    "Microsoft.Azure.EventHubs":  "1.0.0" 
+    "Microsoft.AspNetCore.WebSockets.Server": "0.1.0-rc2-final",
+    "Microsoft.Azure.EventHubs": "1.0.0"
   },
 
   //"tools": {
