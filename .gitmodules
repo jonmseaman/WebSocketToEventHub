@@ -1,3 +1,9 @@
 [submodule "Dependencies/idunno.Authentication"]
 	path = Dependencies/idunno.Authentication
 	url = https://github.com/blowdart/idunno.Authentication.git
+[submodule "Dependencies/azure-amqp"]
+	path = Dependencies/azure-amqp
+	url = https://github.com/Azure/azure-amqp.git
+[submodule "Dependencies/azure-event-hubs"]
+	path = Dependencies/azure-event-hubs
+	url = https://github.com/Azure/azure-event-hubs.git
