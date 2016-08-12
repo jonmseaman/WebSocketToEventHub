@@ -15,50 +15,40 @@ namespace CoreServer
 {
     public class Server
     {
-        private int count;
+        /// <summary>
+        /// Used to send events to the event hub.
+        /// </summary>
+        private EventHubClient _client;
+
+        /// <summary>
+        /// Holds event data before it is forwarded to the event hub.
+        /// </summary>
+        private readonly ConcurrentQueue<EventData> _data = new ConcurrentQueue<EventData>();
+
         public async void ProcessRequest(HttpContext context)
         {
-            // Try to make an event hub client.
-            var url = GetUrl(context);
-            // TODO: Get the regex pattern from app.config.
-            Console.WriteLine($"Url: {url}");
-            var connectionString = GetConnectionString(url, new Regex(@"(?:https*:\/\/)(?<keyName>\w+):(?<key>.+)@(?<ns>\w+)(?:.\w+)(?:\:80)*\/(?<name>\w+)"));
-            Console.WriteLine($"Conn Str: {connectionString}");
-            context.Response.StatusCode = 401;
-            var client = EventHubClient.Create(connectionString);
-
-            // Queue to hold event data in between receiving and sending.
-            var data = new ConcurrentQueue<EventData>();
-
-            Console.WriteLine(connectionString);
-
             WebSocket webSocket;
             try
             {
-                // When calling `AcceptWebSocketAsync` the negotiated subprotocol must be specified. This sample assumes that no subprotocol 
-                // was requested. 
-                webSocket = await context.WebSockets.AcceptWebSocketAsync(subProtocol: null);
-                Interlocked.Increment(ref count);
-                Console.WriteLine("Processed: {0}", count);
+                webSocket = await context.WebSockets.AcceptWebSocketAsync();
             }
             catch (Exception e)
             {
                 // The upgrade process failed somehow. For simplicity lets assume it was a failure on the part of the server and indicate this using 500.
                 context.Response.StatusCode = 500;
-                //context.Response.Close();
                 Console.WriteLine("Exception: {0}", e);
                 return;
             }
+
             // Make a thread that sends the messages.
             var sendingThread = Task.Factory.StartNew(() =>
             {
                 // ReSharper disable once AccessToDisposedClosure
-                SendEvents(client, data, webSocket);
+                SendEvents(_client, _data, webSocket);
             });
 
             try
             {
-                //### Receiving
                 // Define a receive buffer to hold data received on the WebSocket connection. The buffer will be reused.
                 byte[] receiveBuffer = new byte[1024];
                 while (webSocket.State == WebSocketState.Open)
@@ -66,25 +56,20 @@ namespace CoreServer
                     // The first step is to begin a receive operation on the WebSocket. `ReceiveAsync` takes two parameters:
                     WebSocketReceiveResult receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(receiveBuffer), CancellationToken.None);
 
-                    // Adding the message to a queue.
-                    if (receiveResult.MessageType == WebSocketMessageType.Close)
+                    // Process message.
+                    switch (receiveResult.MessageType)
                     {
-                        Console.WriteLine("Received message of MessageType Close. Closing connection...");
-                        await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
-                    }
-                    else if (receiveResult.MessageType == WebSocketMessageType.Text)
-                    {
-                        //var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
-                        var str = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.Count);
-                        data.Enqueue(new EventData(Encoding.UTF8.GetBytes(str)));
-                    }
-                    else
-                    {
-                        await webSocket.SendAsync(new ArraySegment<byte>(receiveBuffer, 0, receiveResult.Count), WebSocketMessageType.Binary, receiveResult.EndOfMessage, CancellationToken.None);
-                        //var str = Encoding.Default.GetString(receiveBuffer, 0, receiveResult.Count);
-                        var str = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.Count);
-
-                        data.Enqueue(new EventData(Encoding.UTF8.GetBytes(str)));
+                        case WebSocketMessageType.Close:
+                            Console.WriteLine("Received message of MessageType Close. Closing connection...");
+                            await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                            break;
+                        case WebSocketMessageType.Text:
+                        case WebSocketMessageType.Binary:
+                            var str = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.Count);
+                            ProcessReceivedText(str);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
                     }
 
                     // Message processing complete.
@@ -92,25 +77,55 @@ namespace CoreServer
             }
             catch (Exception e)
             {
-                // Just log any exceptions to the console. Pretty much any 
-                // exception that occurs when calling 
-                // `SendAsync`/`ReceiveAsync`/`CloseAsync` is unrecoverable 
-                // in that it will abort the connection and leave the 
-                // `WebSocket` instance in an unusable state.
                 Console.WriteLine("Exception: {0}", e);
             }
             finally
             {
-                // Clean up by disposing the WebSocket once it is closed/aborted.
-                await sendingThread; // Must this thread as it uses webSocket, which is about to be disposed.
-                client.Close();
+                // Cleanup
+                // Must await, uses webSocket
+                await sendingThread;
+                _client.Close();
                 webSocket?.Dispose();
             }
         }
 
+        private void ProcessReceivedText(string msg)
+        {
+            // Process commands
+            if (msg.Length > 0)
+            {
+                var command = msg[0];
+                var data = msg.Length > 1 ? msg.Substring(1) : string.Empty;
+                RunCommand(command, data);
+
+            }
+        }
+        #region Commands
+
+        private void RunCommand(char command, string param)
+        {
+            if (command == (char)CommandsEnum.Authenticate)
+            {
+                var auth = param.Split(':');
+                if (auth.Length == 2)
+                {
+                    // TODO: New event hub client.
+                }
+            }
+            else if (command == (char)CommandsEnum.Send)
+            {
+                _data.Enqueue(new EventData(Encoding.UTF8.GetBytes(param)));
+            }
+        }
+
+
+
+        #endregion
+
         private void SendEvents(EventHubClient client, ConcurrentQueue<EventData> dataQueue, WebSocket webSocket)
         {
-            const int maxBatchSize = 256 * 1000; // Max batch size is 256kb. 
+            // Batch size in bytes, max is 256kb
+            const int maxBatchSize = 256 * 1000;
             while (!dataQueue.IsEmpty || webSocket.State == WebSocketState.Open)
             {
                 // Get a batch
@@ -147,18 +162,11 @@ namespace CoreServer
             var conStr = $"Endpoint=sb://{g["ns"]}.servicebus.windows.net/;SharedAccessKeyName={g["keyName"]};SharedAccessKey={g["key"]};EntityPath={g["name"]}";
             return conStr;
         }
+    }
 
-
-
-        private static string GetUrl(HttpContext context)
-        {
-            //context.User.Identity
-            //var user = context.User.Identity as HttpListenerBasicIdentity;
-            //if (user == null) throw new ArgumentException("Did not find user auth in context.");
-            //var url = context.Request.Url.ToString().Replace("//", $"//{user.Name}:{user.Password}@");
-            var url = context.Request.GetDisplayUrl();
-            return url;
-        }
-
+    public enum CommandsEnum
+    {
+        Authenticate = 'A',
+        Send = 'S',
     }
 }
