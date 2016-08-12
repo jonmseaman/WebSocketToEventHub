@@ -34,19 +34,13 @@ namespace CoreServer
                 if (http.WebSockets.IsWebSocketRequest)
                 {
                     var server = new Server();
-                    server.ProcessRequest(http);
+                    await server.ProcessRequest(http);
                 }
                 else
                 {
                     await next();
                 }
             });
-
-            //app.Run(async (context) =>
-            //{
-            //    // TODO: Setup web socket listener
-            //    await context.Response.WriteAsync("Hello World!");
-            //});
         }
     }
 }

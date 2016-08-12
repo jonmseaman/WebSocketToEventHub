@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
@@ -25,12 +26,14 @@ namespace CoreServer
         /// </summary>
         private readonly ConcurrentQueue<EventData> _data = new ConcurrentQueue<EventData>();
 
-        public async void ProcessRequest(HttpContext context)
+        public async Task ProcessRequest(HttpContext context)
         {
+            Console.WriteLine("Processing request.");
             WebSocket webSocket;
             try
             {
-                webSocket = await context.WebSockets.AcceptWebSocketAsync();
+                webSocket = await context.WebSockets.AcceptWebSocketAsync(subProtocol: null);
+                Console.WriteLine("Accepting websocket...");
             }
             catch (Exception e)
             {
@@ -41,31 +44,33 @@ namespace CoreServer
             }
 
             // Make a thread that sends the messages.
-            var sendingThread = Task.Factory.StartNew(() =>
-            {
+           var sendingThread = Task.Factory.StartNew(() =>
+           {
                 // ReSharper disable once AccessToDisposedClosure
                 SendEvents(_client, _data, webSocket);
-            });
+           });
 
             try
             {
                 // Define a receive buffer to hold data received on the WebSocket connection. The buffer will be reused.
-                byte[] receiveBuffer = new byte[1024];
-                while (webSocket.State == WebSocketState.Open)
+                var buffer = new ArraySegment<byte>(new byte[4096]);
+                var token = CancellationToken.None;
+                if (webSocket.State == WebSocketState.Open)
                 {
-                    // The first step is to begin a receive operation on the WebSocket. `ReceiveAsync` takes two parameters:
-                    WebSocketReceiveResult receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(receiveBuffer), CancellationToken.None);
+                    var receiveResult = await webSocket.ReceiveAsync(buffer, token);
 
                     // Process message.
                     switch (receiveResult.MessageType)
                     {
                         case WebSocketMessageType.Close:
+                            Console.WriteLine("Closing...");
                             Console.WriteLine("Received message of MessageType Close. Closing connection...");
                             await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
                             break;
                         case WebSocketMessageType.Text:
                         case WebSocketMessageType.Binary:
-                            var str = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.Count);
+                            Console.WriteLine("Processing message...");
+                            var str = Encoding.UTF8.GetString(buffer.Array, 0, receiveResult.Count);
                             ProcessReceivedText(str);
                             break;
                         default:
@@ -102,23 +107,33 @@ namespace CoreServer
         }
         #region Commands
 
-        private void RunCommand(char command, string param)
+        public void RunCommand(char command, string param)
         {
-            if (command == (char)CommandsEnum.Authenticate)
+            switch (command)
             {
-                var auth = param.Split(':');
-                if (auth.Length == 2)
-                {
-                    // TODO: New event hub client.
-                }
-            }
-            else if (command == (char)CommandsEnum.Send)
-            {
-                _data.Enqueue(new EventData(Encoding.UTF8.GetBytes(param)));
+                case (char)CommandsEnum.Authenticate:
+                    Authenticate(param);
+                    break;
+                case (char)CommandsEnum.Send:
+                    Send(param);
+                    break;
             }
         }
 
+        /// <summary>
+        /// Sets <see cref="_client"/> to a new <see cref="EventHubClient"/> corresponding to the
+        /// supplied connection string.
+        /// </summary>
+        /// <param name="connectionString">Connection string used to create the event hub.</param>
+        public void Authenticate(string connectionString)
+        {
+            _client = EventHubClient.Create(connectionString);
+        }
 
+        public void Send(string message)
+        {
+            _data.Enqueue(new EventData(Encoding.UTF8.GetBytes(message)));
+        }
 
         #endregion
 
@@ -153,19 +168,13 @@ namespace CoreServer
                 }
             }
         }
-
-        private static string GetConnectionString(string url, Regex r)
-        {
-            var match = r.Match(url);
-            if (!match.Success) throw new ArgumentException("Regex did not find a match in url.");
-            var g = match.Groups;
-            var conStr = $"Endpoint=sb://{g["ns"]}.servicebus.windows.net/;SharedAccessKeyName={g["keyName"]};SharedAccessKey={g["key"]};EntityPath={g["name"]}";
-            return conStr;
-        }
     }
 
     public enum CommandsEnum
     {
+        /// <summary>
+        /// Specifies a new connection string to use for sending to the event hub.
+        /// </summary>
         Authenticate = 'A',
         Send = 'S',
     }
