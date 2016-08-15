@@ -14,6 +14,9 @@ using Microsoft.Azure.EventHubs;
 
 namespace CoreServer
 {
+    /// <summary>
+    ///  TODO: IDISPOSABLE?
+    /// </summary>
     public class Server
     {
         /// <summary>
