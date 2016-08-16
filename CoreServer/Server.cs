@@ -152,7 +152,6 @@ namespace CoreServer
             {
                 _webSocket.SendAsync(eventData.Body, WebSocketMessageType.Text, true, CancellationToken.None);
             }
-
         }
 
         public void Send(string message)
