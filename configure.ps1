@@ -38,17 +38,3 @@ cp Microsoft.Azure.EventHubs.Processor.1.0.0.nupkg $outdir
 cp Microsoft.Azure.EventHubs.Processor.1.0.0.symbols.nupkg $outdir
 
 sl $projectDir
-
-# Build idunno.Authentication
-sl Dependencies\idunno.Authentication\src\idunno.Authentication\
-dotnet restore
-dotnet build
-dotnet pack
-
-# Install idunno.Authentication
-sl bin\Debug
-cp idunno.Authentication.1.0.0.nupkg $outdir
-cp idunno.Authentication.1.0.0.symbols.nupkg $outdir
-
-sl $projectDir
-
