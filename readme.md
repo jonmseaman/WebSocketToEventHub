@@ -11,7 +11,7 @@ authentication information, then the server sends the messages
 received from the client to the event hub.
 
 ## Getting Started
-The project can be build by navigating to `\CoreServer\` and running
+The project can be built by navigating to `\CoreServer\` and running
 `dotnet build` or the project can be built in Visual Studio.
 
 ## Todo
