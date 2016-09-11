@@ -14,9 +14,23 @@ received from the client to the event hub.
 The project can be build by navigating to `\CoreServer\` and running
 `dotnet build` or the project can be built in Visual Studio.
 
-## Todo
+### Commands
+   * Authenticate - 'A' - `A<ConnectionString>` - `AEndpoint=...`
+   * Send - 'S' - `S<Message>` - `SHello, world!`
 
+## Todo
+ * Finish receive command.
  * Persistent commands - Add a command that tells the server to keep
  using the same command for each subsequent message received from
  the client.
 
+## How to use the browser client.
+The client sends commands to the server, then the server executes those commands.
+
+1. Connect to the web socket server.
+    In Javascript: `var socket = new WebSocket()`
+2. Send the authenticate command.
+   `A<connectionString>`
+3. Send a message
+   `SHello`
+4. Check that the message was received by the event hub.
