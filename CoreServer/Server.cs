@@ -135,7 +135,7 @@ namespace CoreServer
         public void Authenticate(string connectionString)
         {
             Console.WriteLine("Creating client...");
-            _client = EventHubClient.Create(connectionString);
+            _client = EventHubClient.CreateFromConnectionString(connectionString);
             Console.WriteLine("Done.");
         }
 
